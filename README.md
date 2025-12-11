@@ -4,6 +4,13 @@ This repository contains source files for building a ESP32-based TPMS system wit
 
 ![Monitor](tpms-screen.jpg)
 
+## Why?
+
+- because off-the-shelf systems look ugly
+- because I want to have full control over what kind of alarms I have
+- because I own a 6x6 truck and there are no systems out there that support vehicles (yes, there are some for twin tires on the rear axle but they look ugly)
+- because it is fun!
+
 ## Architecture
 
 The system consists of a ESP32-S3 LCD board (Monitor) for displaying information, a ESP32 classic (Gateway) for reading the TPMS sensors and the sensors themselves. Two ESP32s are necessary because it appears that (some) ESP32-S3 LCD boards have very poor Bluetooth connectivity (presumably because of the antenna is hidden under the screen).
