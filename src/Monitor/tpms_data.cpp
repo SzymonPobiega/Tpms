@@ -5,8 +5,9 @@
 
 namespace tpms {
 
+volatile uint32_t sequence = 0;
 volatile uint32_t latestPressure[kMaxSensors] = {0};
-volatile uint16_t latestTemp[kMaxSensors]     = {0};
+volatile int16_t latestTemp[kMaxSensors]     = {0};
 volatile bool     hasData                 = false;
 volatile uint32_t lastUpdated[kMaxSensors]    = {0};
 volatile uint32_t totalPeriods[kMaxSensors]   = {0};
@@ -40,12 +41,17 @@ void onEspNowRecv(const esp_now_recv_info_t *info,
         return;
     }
 
-    latestPressure[idx] = pkt.pressure;
-    latestTemp[idx]     = pkt.temp;
-    totalPeriods[idx]++;
-    lastUpdated[idx]    = now;
-    last_update         = now;
-    hasData         = true;
+    if (pkt.sequence > sequence) {
+        sequence = pkt.sequence;
+        latestPressure[idx] = pkt.pressure;
+        latestTemp[idx]     = pkt.temp;
+        //We only increase the total number of periods per sensor if the packet is a new one (not a retransmission)
+        totalPeriods[idx]++;
+        lastUpdated[idx] = now;
+        hasData = true;
+    }
+    
+    last_update = now;
 }
 
 bool initEspNow()

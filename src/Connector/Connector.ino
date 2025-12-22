@@ -11,11 +11,14 @@ uint8_t espNowPeerMac[] = { 0x50, 0x78, 0x7D, 0x13, 0x22, 0xF8 };
 
 #pragma pack(push, 1)
 struct TpmsPacket {
+    uint32_t sequence;
     uint32_t sensorId;
     uint32_t pressure;  // raw 32-bit value as you decode it
     uint16_t temp;      // raw 16-bit value
 };
 #pragma pack(pop)
+
+static TpmsPacket pendingMessage;
 
 void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
     Serial.print("ESP-NOW send status: ");
@@ -66,13 +69,12 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
             Serial.print("  |  Temp: ");
             Serial.print(temp);
 
-            // === Build ESP-NOW packet ===
-            TpmsPacket pkt;
-            pkt.sensorId = sensorId;
-            pkt.pressure = pressure;
-            pkt.temp     = temp;
+            pendingMessage.sensorId = sensorId;
+            pendingMessage.pressure = pressure;
+            pendingMessage.temp     = temp;
+            pendingMessage.sequence++;
 
-            esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pkt, sizeof(pkt));
+            esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
             Serial.print("  |  ESP-NOW send: ");
             Serial.println(res == ESP_OK ? "OK" : String("ERR ") + res);
         } else {
@@ -94,6 +96,9 @@ void setup() {
     Serial.begin(115200);
     Serial.println();
     Serial.println("TPMS gateway: scanning TPMS* and forwarding via ESP-NOW.");
+
+    //Init the sequence to 1 so that the Monitor can detect the first packet
+    pendingMessage.sequence = 1;
 
     WiFi.mode(WIFI_STA);        // required for ESP-NOW
     WiFi.disconnect();          // just to be safe
@@ -151,13 +156,12 @@ void loop() {
     if (!pBLEScan->isScanning() && (now - lastScanStart > 5000)) {
         Serial.println("Starting TPMS scan...");
         // duration=30 (seconds), isContinue=false, restart=false
-        pBLEScan->start(0, false, false);
+        pBLEScan->start(120000, false, false);
         lastScanStart = now;
     }
 
     delay(5000);
 
-    //PING
-    uint8_t pingBuffer = 0;
-    esp_err_t res = esp_now_send(espNowPeerMac, &pingBuffer, 1);
+    //PING - send last received measurement
+    esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
 }
