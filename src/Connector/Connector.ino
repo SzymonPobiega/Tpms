@@ -18,6 +18,10 @@ struct TpmsPacket {
 };
 #pragma pack(pop)
 
+static constexpr uint8_t SYNC1 = 0xAA;
+static constexpr uint8_t SYNC2 = 0x55;
+static constexpr uint8_t TYPE_TPMS = 0x01;
+
 static TpmsPacket pendingMessage;
 
 void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
@@ -34,14 +38,14 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
             return;
         }
 
+        Serial.print(name);
+        Serial.print("  |  ");
+        Serial.print(advertisedDevice->getAddress().toString().c_str());
+
         // Filter: only devices whose name starts with "TPMS"
         if (!name.startsWith("TPMS")) {
             return;
         }
-
-        Serial.print(name);
-        Serial.print("  |  ");
-        Serial.print(advertisedDevice->getAddress().toString().c_str());
 
         const std::vector<uint8_t>& payload = advertisedDevice->getPayload();
         size_t length = payload.size();
@@ -77,6 +81,14 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
             esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
             Serial.print("  |  ESP-NOW send: ");
             Serial.println(res == ESP_OK ? "OK" : String("ERR ") + res);
+
+            const uint8_t len = (uint8_t)(1 + sizeof(TpmsPacket));
+            Serial2.write(SYNC1);
+            Serial2.write(SYNC2);
+            Serial2.write(len);
+            Serial2.write(TYPE_TPMS);
+            Serial2.write((const uint8_t*)&pendingMessage, sizeof(TpmsPacket));
+
         } else {
             Serial.print("  |  Payload too short (");
             Serial.print(length);
@@ -96,6 +108,9 @@ void setup() {
     Serial.begin(115200);
     Serial.println();
     Serial.println("TPMS gateway: scanning TPMS* and forwarding via ESP-NOW.");
+
+    // Binary link to other ESP over UART2 on GPIO16/17
+    Serial2.begin(115200, SERIAL_8N1, 16, 17);
 
     //Init the sequence to 1 so that the Monitor can detect the first packet
     pendingMessage.sequence = 1;
