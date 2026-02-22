@@ -41,9 +41,12 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
         Serial.print(name);
         Serial.print("  |  ");
         Serial.print(advertisedDevice->getAddress().toString().c_str());
+        Serial.print("  |  ");
+        Serial.print(advertisedDevice->getAddress().getType());
 
         // Filter: only devices whose name starts with "TPMS"
         if (!name.startsWith("TPMS")) {
+            Serial.println();
             return;
         }
 
@@ -134,7 +137,7 @@ void setup() {
     // Now init ESP-NOW
     if (esp_now_init() != ESP_OK) {
         Serial.println("ESP-NOW init failed!");
-        while (true) { delay(1000); }
+        return;
     }
 
     // New-style callback signature for your core:
