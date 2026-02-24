@@ -119,7 +119,7 @@ void setup() {
   disp_drv.draw_buf = &draw_buf;
 
   disp_drv.sw_rotate = 1;
-  disp_drv.rotated = LV_DISP_ROT_90;
+  disp_drv.rotated = LV_DISP_ROT_180;
 
   lv_disp_drv_register(&disp_drv);
 
@@ -141,13 +141,13 @@ void setup() {
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
   /* Create the tabview as top-level */
-  lv_obj_t *tv = lv_tabview_create(lv_scr_act(), LV_DIR_TOP, 50);  // 50 = tab bar height
+  lv_obj_t *tv = lv_tabview_create(lv_scr_act(), LV_DIR_RIGHT, 60);  // 50 = tab bar height
   lv_obj_set_size(tv, disp_w, disp_h);
 
   /* Create tabs */
-  lv_obj_t *tab1 = lv_tabview_add_tab(tv, "Gauges");
-  lv_obj_t *tab2 = lv_tabview_add_tab(tv, "Tab2");
-  lv_obj_t *tab3 = lv_tabview_add_tab(tv, "Tab3");
+  lv_obj_t *tab1 = lv_tabview_add_tab(tv, "Tires");
+  lv_obj_t *tab2 = lv_tabview_add_tab(tv, "Gyro");
+  lv_obj_t *tab3 = lv_tabview_add_tab(tv, "Power");
 
   lv_obj_t *content = lv_tabview_get_content(tv);
   lv_obj_set_style_pad_all(content, 0, 0);
@@ -158,52 +158,65 @@ void setup() {
   lv_obj_set_style_border_width(tab1, 0, 0);
   lv_obj_set_style_radius(tab1, 0, 0);
 
+    // ---- Tab1 content container (same as you already do) ----
   lv_obj_t *cont = lv_obj_create(tab1);
 
   lv_obj_clear_flag(tab1, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_set_size(cont, lv_pct(100), lv_pct(100));
-  lv_obj_set_style_pad_all(cont, 0, 0);
-  lv_obj_set_style_border_width(cont, 0, 0);
-  lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
-  lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    // --- spacing ---
+  const int outer = 12;   // outer margin around the whole grid
+  const int gap   = 12;   // gap between cells
+  const int inset = 10;   // padding inside each cell (room for labels)
 
+  lv_obj_set_style_pad_all(cont, outer, 0);
+  lv_obj_set_style_pad_row(cont, gap, 0);
+  lv_obj_set_style_pad_column(cont, gap, 0);
+
+  // 3 columns, 2 rows
   static lv_coord_t col_dsc[] = {
-    LV_GRID_FR(1), LV_GRID_FR(1),
+    LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
     LV_GRID_TEMPLATE_LAST
   };
   static lv_coord_t row_dsc[] = {
-    LV_GRID_FR(4),  // Row 0: top gauges
-    LV_GRID_FR(4),  // Row 1: bottom gauges
-    LV_GRID_FR(2),  // Row 2: controls
+    LV_GRID_FR(1), LV_GRID_FR(1),
     LV_GRID_TEMPLATE_LAST
   };
   lv_obj_set_grid_dsc_array(cont, col_dsc, row_dsc);
 
-  int cell_w = disp_w / 2;
-  int cell_h = disp_h / 3;
-  int s = (cell_w < cell_h ? cell_w : cell_h) * 9 / 10;
+  // Compute usable cell size AFTER outer margin + gaps
+  int usable_w = disp_w - 2 * outer - 2 * gap;  // 3 cols => 2 internal gaps
+  int usable_h = disp_h - 2 * outer - 1 * gap;  // 2 rows => 1 internal gap
 
-  // Create 4 gauges and place them in the grid
+  int cell_w = usable_w / 3;
+  int cell_h = usable_h / 2;
+
+  // Leave room around the gauge for your temp labels
+  int s = (min(cell_w, cell_h) - 2 * inset);
+  s = (s * 90) / 100;     // shrink a bit more (85%) to be safe
+
+  // Create 6 gauges: 2 rows x 3 columns
   gauges.clear();
-  gauges.reserve(4);
+  gauges.reserve(6);
+
   for (int r = 0; r < 2; ++r) {
-    for (int c = 0; c < 2; ++c) {
-
+    for (int c = 0; c < 3; ++c) {
       // One container per cell
-      lv_obj_t *cell = lv_obj_create(cont);
-      lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);  // transparent
+            lv_obj_t *cell = lv_obj_create(cont);
       lv_obj_remove_style_all(cell);
-      lv_obj_set_size(cell, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 
-      lv_obj_set_grid_cell(
-        cell,
-        LV_GRID_ALIGN_CENTER, c, 1,
-        LV_GRID_ALIGN_CENTER, r, 1);
+      lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
+      lv_obj_set_style_border_width(cell, 0, 0);
+      lv_obj_set_style_pad_all(cell, inset, 0);          // <-- key
+      lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+
+      lv_obj_set_size(cell, lv_pct(100), lv_pct(100));
+      lv_obj_set_grid_cell(cell,
+        LV_GRID_ALIGN_STRETCH, c, 1,
+        LV_GRID_ALIGN_STRETCH, r, 1);
 
       GaugeUI g = create_pressure_gauge(cell, s);
-
       gauges.push_back(g);
     }
   }
@@ -232,79 +245,104 @@ void setup() {
   Serial0.printf("Dupa!!!!");
 }
 
-void setup_tab2(lv_obj_t *cont, int disp_w, int disp_h) {
+void setup_tab2(lv_obj_t *cont, int disp_w, int disp_h)
+{
+  // IMPORTANT: enable grid layout
+  lv_obj_set_layout(cont, LV_LAYOUT_GRID);
+
+  // Optional: remove padding/gaps so you get full use of the screen
+  lv_obj_set_style_pad_all(cont, 0, 0);
+  lv_obj_set_style_pad_row(cont, 0, 0);
+  lv_obj_set_style_pad_column(cont, 0, 0);
+
   static lv_coord_t col_dsc[] = {
     LV_GRID_FR(1), LV_GRID_FR(1),
     LV_GRID_TEMPLATE_LAST
   };
+
+  // 3/4 top, 1/4 bottom
   static lv_coord_t row_dsc[] = {
-    LV_GRID_FR(4),  // Row 0: top (Pitch)
-    LV_GRID_FR(4),  // Row 1: bottom (Roll)
-    LV_GRID_FR(2),  // Row 2: controls
+    LV_GRID_FR(3),   // row 0: pitch + roll
+    LV_GRID_FR(1),   // row 1: controls
     LV_GRID_TEMPLATE_LAST
   };
+
   lv_obj_set_grid_dsc_array(cont, col_dsc, row_dsc);
 
-  // Match your size logic
-  int cell_w = disp_w / 2;
-  int cell_h = disp_h / 3;
-  int s = (cell_w < cell_h ? cell_w : cell_h) * 9 / 10;
-
-  // ---- Pitch cell (row 0, span 2 columns) ----
+  // ---- Panel containers that actually fill their grid cells ----
   lv_obj_t *cell_pitch = lv_obj_create(cont);
   lv_obj_remove_style_all(cell_pitch);
   lv_obj_set_style_bg_opa(cell_pitch, LV_OPA_TRANSP, 0);
-  lv_obj_set_size(cell_pitch, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_clear_flag(cell_pitch, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(cell_pitch, lv_pct(100), lv_pct(100));
+  lv_obj_set_grid_cell(cell_pitch,
+                       LV_GRID_ALIGN_STRETCH, 0, 1,
+                       LV_GRID_ALIGN_STRETCH, 0, 1);
 
-  lv_obj_set_grid_cell(
-    cell_pitch,
-    LV_GRID_ALIGN_CENTER, 0, 2,
-    LV_GRID_ALIGN_CENTER, 0, 1);
-
-  int s_att = (int)(s * 1.3f);
-  pitch_ui = create_attitude_indicator(cell_pitch, s_att);
-  attitude_set_center_image(&pitch_ui, &pitch_img);
-
-  // ---- Roll cell (row 1, span 2 columns) ----
   lv_obj_t *cell_roll = lv_obj_create(cont);
   lv_obj_remove_style_all(cell_roll);
   lv_obj_set_style_bg_opa(cell_roll, LV_OPA_TRANSP, 0);
-  lv_obj_set_size(cell_roll, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_clear_flag(cell_roll, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(cell_roll, lv_pct(100), lv_pct(100));
+  lv_obj_set_grid_cell(cell_roll,
+                       LV_GRID_ALIGN_STRETCH, 1, 1,
+                       LV_GRID_ALIGN_STRETCH, 0, 1);
 
-  lv_obj_set_grid_cell(
-    cell_roll,
-    LV_GRID_ALIGN_CENTER, 0, 2,
-    LV_GRID_ALIGN_CENTER, 1, 1);
+  // ---- Compute size so each indicator fits in HALF the screen width ----
+  // Your indicator root width is W = 2 * size_px, height = size_px.
+  // Each panel is ~disp_w/2 wide. So we need 2*size_px <= panel_w * margin.
+  int panel_w = disp_w / 2;
+  int panel_h = (disp_h * 3) / 4;
 
-  roll_ui = create_attitude_indicator(cell_roll, s_att);
+  // leave a little margin (10%)
+  int max_root_w = (panel_w * 90) / 100;
+  int max_root_h = (panel_h * 90) / 100;
+
+  int size_px = max_root_w / 2;          // because root W = 2*size_px
+  if(size_px > max_root_h) size_px = max_root_h;
+
+  // ---- Create indicators inside each panel ----
+  pitch_ui = create_attitude_indicator(cell_pitch, size_px);
+  attitude_set_center_image(&pitch_ui, &pitch_img);
+
+  roll_ui = create_attitude_indicator(cell_roll, size_px);
   attitude_set_center_image(&roll_ui, &roll_img);
 
-  // ---- Controls row (same as your other screen) ----
-  lv_obj_t *cell_led = lv_obj_create(cont);
+  // ---- Controls area (bottom 1/4) spanning both columns ----
+  lv_obj_t *controls = lv_obj_create(cont);
+  lv_obj_remove_style_all(controls);
+  lv_obj_set_style_bg_opa(controls, LV_OPA_TRANSP, 0);
+  lv_obj_clear_flag(controls, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(controls, lv_pct(100), lv_pct(100));
+  lv_obj_set_grid_cell(controls,
+                       LV_GRID_ALIGN_STRETCH, 0, 2,
+                       LV_GRID_ALIGN_STRETCH, 1, 1);
+
+  // If you want 2 items in the bottom area (left/right), make it a grid too
+  lv_obj_set_layout(controls, LV_LAYOUT_GRID);
+  static lv_coord_t c_col[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+  static lv_coord_t c_row[] = { LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+  lv_obj_set_grid_dsc_array(controls, c_col, c_row);
+
+  lv_obj_t *cell_led = lv_obj_create(controls);
   lv_obj_remove_style_all(cell_led);
   lv_obj_set_style_bg_opa(cell_led, LV_OPA_TRANSP, 0);
-  lv_obj_set_size(cell_led, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_size(cell_led, lv_pct(100), lv_pct(100));
+  lv_obj_set_grid_cell(cell_led,
+                       LV_GRID_ALIGN_CENTER, 0, 1,
+                       LV_GRID_ALIGN_CENTER, 0, 1);
 
-  lv_obj_set_grid_cell(
-    cell_led,
-    LV_GRID_ALIGN_CENTER, 0, 1,
-    LV_GRID_ALIGN_CENTER, 2, 1);
-
-  lv_obj_t *cell_lbl = lv_obj_create(cont);
+  lv_obj_t *cell_lbl = lv_obj_create(controls);
   lv_obj_remove_style_all(cell_lbl);
   lv_obj_set_style_bg_opa(cell_lbl, LV_OPA_TRANSP, 0);
-  lv_obj_set_size(cell_lbl, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_size(cell_lbl, lv_pct(100), lv_pct(100));
+  lv_obj_set_grid_cell(cell_lbl,
+                       LV_GRID_ALIGN_CENTER, 1, 1,
+                       LV_GRID_ALIGN_CENTER, 0, 1);
 
-  lv_obj_set_grid_cell(
-    cell_lbl,
-    LV_GRID_ALIGN_CENTER, 1, 1,
-    LV_GRID_ALIGN_CENTER, 2, 1);
-
-  //lv_obj_add_flag(pitch_ui.car, LV_OBJ_FLAG_HIDDEN);
-  //lv_obj_add_flag(roll_ui.car,  LV_OBJ_FLAG_HIDDEN);
-
-  attitude_set_value(&pitch_ui, 20.0f);  // +20°
-  attitude_set_value(&roll_ui, -15.0f);  // -15°
+  // Demo values
+  attitude_set_value(&pitch_ui, 20.0f);
+  attitude_set_value(&roll_ui, -15.0f);
 }
 
 void loop() {

@@ -87,7 +87,7 @@ GaugeUI create_pressure_gauge(lv_obj_t* parent, int size_px)
     const lv_font_t* temp_font = choose_font_by_height(size_px / 4);
     lv_obj_set_style_text_font(g.label_temp, temp_font, 0);
     lv_label_set_text(g.label_temp, "-- °C");
-    lv_obj_align_to(g.label_temp, g.meter, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+    lv_obj_align_to(g.label_temp, g.meter, LV_ALIGN_OUT_BOTTOM_MID, 80, -5);
 
     g.label_age = lv_label_create(parent);
     lv_obj_set_style_text_color(g.label_age, lv_color_black(), 0);

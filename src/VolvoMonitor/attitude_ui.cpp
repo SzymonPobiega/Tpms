@@ -80,8 +80,8 @@ AttitudeUI create_attitude_indicator(lv_obj_t *parent, int size_px)
     ui.max_deg = 45;
 
     // Overall footprint: same as “two gauges side-by-side”
-    const lv_coord_t W = (lv_coord_t)(size_px * 2);
-    const lv_coord_t H = (lv_coord_t)(size_px);
+    const lv_coord_t W = (lv_coord_t)(size_px * 1.9);
+    const lv_coord_t H = (lv_coord_t)(size_px * 1.9);
 
     // Titles removed — reclaim vertical space
     const lv_coord_t title_h = 0;
@@ -99,6 +99,11 @@ AttitudeUI create_attitude_indicator(lv_obj_t *parent, int size_px)
     lv_obj_set_size(ui.root, W, H);
     lv_obj_center(ui.root);
 
+    //For debugging
+    // lv_obj_set_style_border_width(ui.root, 2, 0);
+    // lv_obj_set_style_border_color(ui.root, lv_palette_main(LV_PALETTE_BLUE), 0);
+    // lv_obj_set_style_border_opa(ui.root, LV_OPA_COVER, 0);
+
     // Build left/right meters (SQUARE so arcs are big)
     build_side_meter(ui.root, &ui.meter_l, &ui.scale_l, &ui.needle_l, &ui.hl_l,
                      meter_sz, false, ui.max_deg);
@@ -109,7 +114,7 @@ AttitudeUI create_attitude_indicator(lv_obj_t *parent, int size_px)
     // target_inner_gap:
     //   0  -> meters touch at the inner edge
     //  <0  -> meters overlap by -gap pixels (recommended: -10..-30)
-    const lv_coord_t target_inner_gap = -250;  // overlap by 20 px
+    const lv_coord_t target_inner_gap = -175;  // overlap by 20 px
 
     lv_coord_t base_inner_gap = W - 2 * meter_sz;
     lv_coord_t overlap = base_inner_gap - target_inner_gap;   // becomes larger if target is negative
