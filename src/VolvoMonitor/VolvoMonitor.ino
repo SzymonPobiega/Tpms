@@ -8,6 +8,7 @@
 #include "gauge_ui.hpp"
 #include "tpms_data.hpp"
 #include "attitude_ui.hpp"
+#include "compas_ui.hpp"
 #include "pitch.c"
 #include "roll.c"
 
@@ -21,6 +22,7 @@ using namespace esp_panel::drivers;
 // Keep these somewhere global if you need to update them later
 static AttitudeUI pitch_ui;
 static AttitudeUI roll_ui;
+static compass_strip_t g_compass;
 
 extern const lv_img_dsc_t pitch_img;
 extern const lv_img_dsc_t roll_img;
@@ -308,37 +310,70 @@ void setup_tab2(lv_obj_t *cont, int disp_w, int disp_h)
   roll_ui = create_attitude_indicator(cell_roll, size_px);
   attitude_set_center_image(&roll_ui, &roll_img);
 
-  // ---- Controls area (bottom 1/4) spanning both columns ----
+  // Compass
+  // ---- Controls area (bottom row) spanning both columns ----
   lv_obj_t *controls = lv_obj_create(cont);
   lv_obj_remove_style_all(controls);
   lv_obj_set_style_bg_opa(controls, LV_OPA_TRANSP, 0);
   lv_obj_clear_flag(controls, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(controls, lv_pct(100), lv_pct(100));
   lv_obj_set_grid_cell(controls,
-                       LV_GRID_ALIGN_STRETCH, 0, 2,
-                       LV_GRID_ALIGN_STRETCH, 1, 1);
+                      LV_GRID_ALIGN_STRETCH, 0, 2,
+                      LV_GRID_ALIGN_STRETCH, 1, 1);
 
-  // If you want 2 items in the bottom area (left/right), make it a grid too
+  // Make controls a 2-row grid:
+  // row 0 = compass (150px fixed)
+  // row 1 = your existing 2-cell controls (fills remaining space)
   lv_obj_set_layout(controls, LV_LAYOUT_GRID);
-  static lv_coord_t c_col[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-  static lv_coord_t c_row[] = { LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-  lv_obj_set_grid_dsc_array(controls, c_col, c_row);
+  static lv_coord_t ctrl_cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+  static lv_coord_t ctrl_rows[] = { 150, LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+  lv_obj_set_grid_dsc_array(controls, ctrl_cols, ctrl_rows);
 
-  lv_obj_t *cell_led = lv_obj_create(controls);
-  lv_obj_remove_style_all(cell_led);
-  lv_obj_set_style_bg_opa(cell_led, LV_OPA_TRANSP, 0);
-  lv_obj_set_size(cell_led, lv_pct(100), lv_pct(100));
-  lv_obj_set_grid_cell(cell_led,
-                       LV_GRID_ALIGN_CENTER, 0, 1,
-                       LV_GRID_ALIGN_CENTER, 0, 1);
+  // Optional: remove padding/gaps inside controls so compass fits cleanly
+  lv_obj_set_style_pad_all(controls, 0, 0);
+  lv_obj_set_style_pad_row(controls, 0, 0);
+  lv_obj_set_style_pad_column(controls, 0, 0);
 
-  lv_obj_t *cell_lbl = lv_obj_create(controls);
-  lv_obj_remove_style_all(cell_lbl);
-  lv_obj_set_style_bg_opa(cell_lbl, LV_OPA_TRANSP, 0);
-  lv_obj_set_size(cell_lbl, lv_pct(100), lv_pct(100));
-  lv_obj_set_grid_cell(cell_lbl,
-                       LV_GRID_ALIGN_CENTER, 1, 1,
-                       LV_GRID_ALIGN_CENTER, 0, 1);
+  // ---- Compass cell spanning both columns (row 0) ----
+  lv_obj_t *cell_compass = lv_obj_create(controls);
+  lv_obj_remove_style_all(cell_compass);
+  lv_obj_set_style_bg_opa(cell_compass, LV_OPA_TRANSP, 0);
+  lv_obj_clear_flag(cell_compass, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(cell_compass, lv_pct(100), lv_pct(100));
+  lv_obj_set_grid_cell(cell_compass,
+                      LV_GRID_ALIGN_STRETCH, 0, 2,   // span 2 columns
+                      LV_GRID_ALIGN_STRETCH, 0, 1);  // row 0
+
+  // after creating controls + cell_compass and setting grid cells:
+  lv_obj_update_layout(cont);
+  lv_obj_update_layout(controls);
+  lv_obj_update_layout(cell_compass);
+
+  lv_coord_t cw = lv_obj_get_width(cell_compass);
+  lv_coord_t ch = lv_obj_get_height(cell_compass);
+
+  compass_strip_create(&g_compass, cell_compass, 0, 0, cw, ch);
+
+  // ---- Existing bottom controls split left/right (row 1) ----
+  // lv_obj_t *cell_led = lv_obj_create(controls);
+  // lv_obj_remove_style_all(cell_led);
+  // lv_obj_set_style_bg_opa(cell_led, LV_OPA_TRANSP, 0);
+  // lv_obj_set_size(cell_led, lv_pct(100), lv_pct(100));
+  // lv_obj_set_grid_cell(cell_led,
+  //                     LV_GRID_ALIGN_CENTER, 0, 1,
+  //                     LV_GRID_ALIGN_CENTER, 1, 1);   // row 1
+
+  // lv_obj_t *cell_lbl = lv_obj_create(controls);
+  // lv_obj_remove_style_all(cell_lbl);
+  // lv_obj_set_style_bg_opa(cell_lbl, LV_OPA_TRANSP, 0);
+  // lv_obj_set_size(cell_lbl, lv_pct(100), lv_pct(100));
+  // lv_obj_set_grid_cell(cell_lbl,
+  //                     LV_GRID_ALIGN_CENTER, 1, 1,
+  //                     LV_GRID_ALIGN_CENTER, 1, 1);   // row 1
+
+  // Demo compass values
+  compass_strip_set_heading(&g_compass, 298);
+  compass_strip_set_altitude(&g_compass, 65);
 
   // Demo values
   attitude_set_value(&pitch_ui, 20.0f);
