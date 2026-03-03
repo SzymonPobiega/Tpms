@@ -4,23 +4,11 @@
 #include <esp_mac.h> 
 #include <WiFi.h>
 #include <esp_now.h>
+#include "ContractsInclude.hpp"
 
 NimBLEScan* pBLEScan = nullptr;
 
-uint8_t espNowPeerMac[] = { 0x50, 0x78, 0x7D, 0x13, 0x22, 0xF8 };
-
-#pragma pack(push, 1)
-struct TpmsPacket {
-    uint32_t sequence;
-    uint32_t sensorId;
-    uint32_t pressure;  // raw 32-bit value as you decode it
-    uint16_t temp;      // raw 16-bit value
-};
-#pragma pack(pop)
-
-static constexpr uint8_t SYNC1 = 0xAA;
-static constexpr uint8_t SYNC2 = 0x55;
-static constexpr uint8_t TYPE_TPMS = 0x01;
+using namespace Contracts;
 
 static TpmsPacket pendingMessage;
 
@@ -38,17 +26,16 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
             return;
         }
 
+        // Filter: only devices whose name starts with "TPMS"
+        if (!name.startsWith("TPMS")) {
+            return;
+        }
+
         Serial.print(name);
         Serial.print("  |  ");
         Serial.print(advertisedDevice->getAddress().toString().c_str());
         Serial.print("  |  ");
         Serial.print(advertisedDevice->getAddress().getType());
-
-        // Filter: only devices whose name starts with "TPMS"
-        if (!name.startsWith("TPMS")) {
-            Serial.println();
-            return;
-        }
 
         const std::vector<uint8_t>& payload = advertisedDevice->getPayload();
         size_t length = payload.size();
@@ -76,12 +63,13 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
             Serial.print("  |  Temp: ");
             Serial.print(temp);
 
+            pendingMessage.type = TYPE_TPMS;
             pendingMessage.sensorId = sensorId;
             pendingMessage.pressure = pressure;
             pendingMessage.temp     = temp;
             pendingMessage.sequence++;
 
-            esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
+            esp_err_t res = esp_now_send(S3_5_1_MAC, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
             Serial.print("  |  ESP-NOW send: ");
             Serial.println(res == ESP_OK ? "OK" : String("ERR ") + res);
 
@@ -145,7 +133,7 @@ void setup() {
 
     // Add peer (your ESP32-S3)
     esp_now_peer_info_t peerInfo = {};
-    memcpy(peerInfo.peer_addr, espNowPeerMac, 6);
+    memcpy(peerInfo.peer_addr, S3_5_1_MAC, 6);
     peerInfo.channel = 0;   // 0 = current Wi-Fi channel
     peerInfo.encrypt = false;
 
@@ -181,5 +169,5 @@ void loop() {
     delay(5000);
 
     //PING - send last received measurement
-    esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
+    esp_err_t res = esp_now_send(S3_5_1_MAC, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
 }

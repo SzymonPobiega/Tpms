@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "ContractsInclude.hpp"
 
 namespace tpms {
 
@@ -15,21 +16,5 @@ extern volatile uint32_t totalPeriods[kMaxSensors];
 extern volatile uint32_t last_update;
 extern volatile uint32_t start_time;  // if you want it shared
 
-struct TpmsPacket {
-  uint32_t sequence;
-  uint32_t sensorId;
-  uint32_t pressure;
-  int16_t temp;
-} __attribute__((packed));
-
-void initLink();
-// uint32_t getIndex(uint32_t sensor);
-bool tryReadTpms(TpmsPacket& pkt);
-
-// ESP-NOW callback
-// void onEspNowRecv(const esp_now_recv_info_t *info,
-//                   const uint8_t *data, int len);
-
-// // helper to init ESP-NOW and register callback
-// bool initEspNow();
+bool processTpms(Contracts::TpmsPacket& pkt);
 }

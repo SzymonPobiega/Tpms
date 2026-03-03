@@ -14,17 +14,19 @@ NimBLEScan* pBLEScan = nullptr;
 //WIT BLE
 static NimBLEUUID SVC_FFE5("0000FFE5-0000-1000-8000-00805F9A34FB");
 static NimBLEUUID CH_FFE4("0000FFE4-0000-1000-8000-00805F9A34FB");
+static NimBLEUUID CH_FFE9("0000FFE9-0000-1000-8000-00805F9A34FB");
 
 static const char* TARGET_MAC = "e0:3b:b5:fe:27:8e";
 
 static NimBLEClient* client = nullptr;
 static NimBLERemoteCharacteristic* chNotify = nullptr;
+static NimBLERemoteCharacteristic* chWrite = nullptr;
 
 static std::vector<uint8_t> rxBuf;
 
 void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
-    //Serial.print("ESP-NOW send status: ");
-    //Serial.println(status == ESP_NOW_SEND_SUCCESS ? "SUCCESS" : "FAIL");
+    Serial.print("ESP-NOW send status: ");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "SUCCESS" : "FAIL");
 }
 
 void setup() {
@@ -59,7 +61,7 @@ void setup() {
 
     // Add peer (your ESP32-S3)
     esp_now_peer_info_t peerInfo = {};
-    memcpy(peerInfo.peer_addr, ToyotaMonitorMAC, 6);
+    memcpy(peerInfo.peer_addr, Contracts::S3_5_1_MAC, 6);
     peerInfo.channel = 0;   // 0 = current Wi-Fi channel
     peerInfo.encrypt = false;
 
@@ -83,6 +85,13 @@ void setup() {
 
 static inline int16_t le_i16(const uint8_t* p) {
   return (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+}
+
+static inline uint32_t le_u32(const uint8_t* p) {
+  return (uint32_t)p[0]
+      | ((uint32_t)p[1] << 8)
+      | ((uint32_t)p[2] << 16)
+      | ((uint32_t)p[3] << 24);
 }
 
 static bool checksum_ok_11(const uint8_t* f) {
@@ -110,27 +119,56 @@ static void consumeFrames() {
       continue;
     }
 
+    uint8_t flag = rxBuf[1];
+
     const uint8_t* f = rxBuf.data();
 
-    // Decode angles at fixed offsets in the 0x61 frame:
-    int16_t r_raw = le_i16(&f[14]);
-    int16_t p_raw = le_i16(&f[16]);
-    int16_t y_raw = le_i16(&f[18]);
+    if (flag == 0x61) {
 
-    constexpr float SCALE = 180.0f / 32768.0f;
-    float roll  = r_raw * SCALE;
-    float pitch = p_raw * SCALE;
-    float yaw   = y_raw * SCALE;
+      // Decode angles at fixed offsets in the 0x61 frame:
+      int16_t r_raw = le_i16(&f[14]);
+      int16_t p_raw = le_i16(&f[16]);
+      int16_t y_raw = le_i16(&f[18]);
 
-    Serial.printf("RPY: %.2f %.2f %.2f\n", roll, pitch, yaw);
+      constexpr float SCALE = 180.0f / 32768.0f;
+      float roll  = r_raw * SCALE;
+      float pitch = p_raw * SCALE;
+      float yaw   = y_raw * SCALE;
 
-    GyroAnglePacket pkt;
-    pkt.roll_deg  = (int16_t)(roll  * 100.0f);
-    pkt.pitch_deg = (int16_t)(pitch * 100.0f);
-    pkt.yaw_deg   = (int16_t)(yaw   * 100.0f);
-    esp_now_send(ToyotaMonitorMAC, (uint8_t*)&pkt, sizeof(pkt));
+      Serial.printf("RPY: %.2f %.2f %.2f\n", roll, pitch, yaw);
 
-    rxBuf.erase(rxBuf.begin(), rxBuf.begin() + FRAME_LEN);
+      GyroAnglePacket pkt;
+      pkt.type = Contracts::TYPE_GYRO_ANGLE;
+      pkt.roll_deg  = (int16_t)(roll  * 100.0f);
+      pkt.pitch_deg = (int16_t)(pitch * 100.0f);
+      pkt.yaw_deg   = (int16_t)(yaw   * 100.0f);
+      esp_now_send(Contracts::S3_5_1_MAC, (uint8_t*)&pkt, sizeof(pkt));
+
+      rxBuf.erase(rxBuf.begin(), rxBuf.begin() + FRAME_LEN);
+      continue;
+    }
+
+    if (flag == 0x71) {
+      const uint8_t* f = rxBuf.data();
+
+      uint8_t regL = f[2];
+      uint8_t regH = f[3]; // usually 0x00 here
+
+      // Air pressure + altitude request starts at reg 0x45
+      if (regL == 0x45 && regH == 0x00) {
+        // layout: 55 71 45 00  P0 P1 P2 P3  H0 H1 H2 H3  (rest = other regs / padding)
+        uint32_t pressure_pa = le_u32(&f[4]);   // P0..P3
+        int32_t  height_cm   = (int32_t)le_u32(&f[8]);  // H0..H3 (signed in case)
+
+        float height_m = height_cm / 100.0f;
+
+        Serial.printf("Pressure: %lu Pa, Alt: %.2f m\n",
+                      (unsigned long)pressure_pa, height_m);
+      }
+
+      rxBuf.erase(rxBuf.begin(), rxBuf.begin() + FRAME_LEN);
+      continue;
+    }
   }
 }
 
@@ -141,6 +179,14 @@ static void onNotify(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, boo
   consumeFrames();
 }
 
+static void requestAltitude() {
+    if (!chWrite) return;
+
+    uint8_t cmd[] = {0xFF, 0xAA, 0x27, 0x45, 0x00};
+    chWrite->writeValue(cmd, sizeof(cmd), false);
+
+    Serial.println("Requested pressure + altitude");
+}
 
 static bool connectWT901() {
   NimBLEAddress addr(std::string(TARGET_MAC), BLE_ADDR_RANDOM );
@@ -182,13 +228,27 @@ static bool connectWT901() {
   }
 
   Serial.println("✅ Connected + subscribed (WT901)");
+
+  chWrite = svc->getCharacteristic("0000FFE9-0000-1000-8000-00805F9A34FB");
+  if (!chWrite) {
+      Serial.println("❌ FFE9 write characteristic not found");
+      return false;
+  }
+
+  if (!chWrite->canWrite()) {
+      Serial.println("❌ FFE9 not writable");
+      return false;
+  }
+
   return true;
 }
 
 
 void loop() {
   if (!client || !client->isConnected()) {
-      connectWT901();
+     connectWT901();
+  } else {
+    requestAltitude();   // ask sensor
   }
   delay(1000);
 }

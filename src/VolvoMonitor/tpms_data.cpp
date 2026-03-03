@@ -13,100 +13,17 @@ volatile uint32_t start_time                  = 0;
 
 uint32_t getIndex(uint32_t sensor)
 {
-    if (sensor == 7549971)  return 0;
-    else if (sensor == 1126691)  return 1;
-    else if (sensor == 14554163) return 2;
-    else if (sensor == 4592707)  return 3;
+    if (sensor == 8924691)  return 0;
+    else if (sensor == 9580339)  return 1;
+    else if (sensor == 9449267) return 2;
+    else if (sensor == 6499363)  return 3;
+    else if (sensor == 14745155)  return 4;
+    else if (sensor == 2240579)  return 5;
     return 0;
 }
 
-static constexpr uint8_t SYNC1 = 0xAA;
-static constexpr uint8_t SYNC2 = 0x55;
-static constexpr uint8_t TYPE_TPMS = 0x01;
-
-// Choose the P4 pins you wired to:
-static constexpr int P4_RX_PIN = 32; // wired from C6_U0TXD
-static constexpr int P4_TX_PIN = 35; // wired to C6_U0RXD (optional)
-
-HardwareSerial Link(1);
-
-void initLink() {
-    Link.begin(115200, SERIAL_8N1, P4_RX_PIN, P4_TX_PIN);
-}
-
-static bool readByteWithTimeout(Stream& s, uint8_t& out, uint32_t timeoutMs = 50) {
-  uint32_t start = millis();
-  while (!s.available()) {
-    if (millis() - start > timeoutMs) return false;
-    delay(1);
-  }
-  out = (uint8_t)s.read();
-  return true;
-}
-
-static bool readExact(Stream& s, uint8_t* buf, size_t n, uint32_t timeoutMs = 50) {
-  for (size_t i = 0; i < n; i++) {
-    if (!readByteWithTimeout(s, buf[i], timeoutMs)) return false;
-  }
-  return true;
-}
-
-
-static bool recvTpms(TpmsPacket& pkt) {
-  // Find sync AA 55
-  uint8_t b;
-  while (Link.available()) {
-    if (!readByteWithTimeout(Link, b)) return false;
-    if (b != SYNC1) continue;
-
-    uint8_t b2;
-    if (!readByteWithTimeout(Link, b2)) return false;
-    if (b2 != SYNC2) continue;
-
-    uint8_t len;
-    if (!readByteWithTimeout(Link, len)) return false;
-
-    // Expect len = 1(type) + payload
-    const uint8_t expectedLen = (uint8_t)(1 + sizeof(TpmsPacket));
-    if (len != expectedLen) {
-      // Skip unknown frame
-      uint8_t trash[64];
-      if (len <= sizeof(trash)) {
-        if (!readExact(Link, trash, len)) return false;
-      } else {
-        // drain in chunks
-        uint8_t tmp[64];
-        uint16_t remaining = len;
-        while (remaining) {
-          uint8_t chunk = remaining > sizeof(tmp) ? sizeof(tmp) : remaining;
-          if (!readExact(Link, tmp, chunk)) return false;
-          remaining -= chunk;
-        }
-      }
-      continue;
-    }
-
-    uint8_t type;
-    if (!readByteWithTimeout(Link, type)) return false;
-    if (type != TYPE_TPMS) {
-      // Skip payload
-      uint8_t trash[sizeof(TpmsPacket)];
-      if (!readExact(Link, trash, sizeof(TpmsPacket))) return false;
-      continue;
-    }
-
-    // Read payload into struct
-    return readExact(Link, (uint8_t*)&pkt, sizeof(TpmsPacket));
-  }
-  return false;
-}
-
-bool tryReadTpms(TpmsPacket& pkt) {
-    if (!recvTpms(pkt))
-    {
-        return false;
-    }
-
+bool processTpms(Contracts::TpmsPacket& pkt) {
+    
     uint32_t now = millis();
     uint32_t idx = getIndex(pkt.sensorId);
     if (idx >= kMaxSensors) {

@@ -11,9 +11,12 @@
 #include "compas_ui.hpp"
 #include "pitch.c"
 #include "roll.c"
+#include "gyro_data.hpp"
 
 using namespace esp_panel::board;
 using namespace esp_panel::drivers;
+using namespace tpms;
+using namespace gyro;
 
 #if LV_COLOR_DEPTH != 16
 #error "Set LV_COLOR_DEPTH to 16 (RGB565) in lv_conf.h"
@@ -239,15 +242,31 @@ void setup() {
   lv_obj_set_style_bg_opa(cont2, LV_OPA_TRANSP, 0);
   lv_obj_clear_flag(cont2, LV_OBJ_FLAG_SCROLLABLE);
 
-  setup_tab2(cont2, disp_w, disp_h);
+  setup_gyro_tab(cont2, disp_w, disp_h);
 
   init_gauge_timer();
-  //tpms::initLink();
-
-  Serial0.printf("Dupa!!!!");
+  init_timer();
+  
+  if (!initEspNow())
+  {
+    Serial0.printf("ESP-NOW init failed"); 
+  }
 }
 
-void setup_tab2(lv_obj_t *cont, int disp_w, int disp_h)
+static void anim_all_cb(lv_timer_t *t)
+{
+  attitude_set_value(&pitch_ui, gyro::pitch_deg);
+  attitude_set_value(&roll_ui, gyro::roll_deg);
+  compass_strip_set_heading(&g_compass, gyro::yaw_deg);
+}
+
+void init_timer()
+{
+    // one place to create the timer
+    lv_timer_create(anim_all_cb, 100, nullptr);
+}
+
+void setup_gyro_tab(lv_obj_t *cont, int disp_w, int disp_h)
 {
   // IMPORTANT: enable grid layout
   lv_obj_set_layout(cont, LV_LAYOUT_GRID);
@@ -372,12 +391,64 @@ void setup_tab2(lv_obj_t *cont, int disp_w, int disp_h)
   //                     LV_GRID_ALIGN_CENTER, 1, 1);   // row 1
 
   // Demo compass values
-  compass_strip_set_heading(&g_compass, 298);
   compass_strip_set_altitude(&g_compass, 65);
+}
 
-  // Demo values
-  attitude_set_value(&pitch_ui, 20.0f);
-  attitude_set_value(&roll_ui, -15.0f);
+void onEspNowRecv(const esp_now_recv_info_t *info,
+                  const uint8_t *data, int len)
+{
+    if (len < 1) {
+      return;
+    }
+    // Serial0.printf("ESP-NOW packet received. Type: %d Length: %d\n", data[0], len);
+    uint8_t type = data[0];
+    if (type == Contracts::TYPE_GYRO_ANGLE && len == (int)sizeof(Contracts::GyroAnglePacket))
+    {
+      Contracts::GyroAnglePacket pkt;
+      memcpy(&pkt, data, sizeof(pkt));
+      processGyroAngle(pkt);
+      return;
+    }
+    if (type == Contracts::TYPE_TPMS && len == (int)sizeof(Contracts::TpmsPacket))
+    {
+      uint32_t now = millis();
+      Contracts::TpmsPacket pkt;
+      memcpy(&pkt, data, sizeof(pkt));
+      processTpms(pkt);
+      last_update = now;
+      return;
+    }
+}
+
+bool initEspNow()
+{
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+
+    uint8_t staMac[6];
+    esp_err_t err = esp_read_mac(staMac, ESP_MAC_WIFI_STA);
+    if (err != ESP_OK) {
+        Serial0.printf("esp_read_mac failed: %d\n", err);
+        return false;
+    }
+
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             staMac[0], staMac[1], staMac[2],
+             staMac[3], staMac[4], staMac[5]);
+
+    Serial0.print("ESP-NOW (STA) MAC: ");
+    Serial0.println(macStr);
+
+    if (esp_now_init() != ESP_OK) {
+        Serial0.println("ESP-NOW init failed!");
+        return false;
+    }
+
+    esp_now_register_recv_cb(onEspNowRecv);
+    start_time  = millis();
+    last_update = start_time;
+    return true;
 }
 
 void loop() {
@@ -387,17 +458,5 @@ void loop() {
   last = now;
 
   lv_timer_handler();
-
-  // tpms::TpmsPacket p;
-  // if (tpms::tryReadTpms(p)) {
-  //   Serial.print("seq=");
-  //   Serial.print(p.sequence);
-  //   Serial.print(" id=");
-  //   Serial.print(p.sensorId);
-  //   Serial.print(" pressure=");
-  //   Serial.print(p.pressure);
-  //   Serial.print(" temp=");
-  //   Serial.println(p.temp);
-  // }
   delay(5);
 }

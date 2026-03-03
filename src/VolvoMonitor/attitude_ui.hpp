@@ -42,6 +42,8 @@ void attitude_set_car_image(AttitudeUI *ui, const void *src, uint16_t zoom_256);
 
 void attitude_set_center_image(AttitudeUI *ui, const lv_img_dsc_t *img);
 
+void init_timer();
+
 #ifdef __cplusplus
 }
 #endif
