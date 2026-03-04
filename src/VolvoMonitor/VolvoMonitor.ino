@@ -258,6 +258,7 @@ static void anim_all_cb(lv_timer_t *t)
   attitude_set_value(&pitch_ui, gyro::pitch_deg);
   attitude_set_value(&roll_ui, gyro::roll_deg);
   compass_strip_set_heading(&g_compass, gyro::yaw_deg);
+  compass_strip_set_altitude(&g_compass, gyro::height);
 }
 
 void init_timer()
@@ -391,7 +392,7 @@ void setup_gyro_tab(lv_obj_t *cont, int disp_w, int disp_h)
   //                     LV_GRID_ALIGN_CENTER, 1, 1);   // row 1
 
   // Demo compass values
-  compass_strip_set_altitude(&g_compass, 65);
+  //compass_strip_set_altitude(&g_compass, 65);
 }
 
 void onEspNowRecv(const esp_now_recv_info_t *info,
@@ -400,13 +401,20 @@ void onEspNowRecv(const esp_now_recv_info_t *info,
     if (len < 1) {
       return;
     }
-    // Serial0.printf("ESP-NOW packet received. Type: %d Length: %d\n", data[0], len);
     uint8_t type = data[0];
+    Serial0.printf("ESP-NOW packet received. Type: %d Length: %d\n", type, len);
     if (type == Contracts::TYPE_GYRO_ANGLE && len == (int)sizeof(Contracts::GyroAnglePacket))
     {
       Contracts::GyroAnglePacket pkt;
       memcpy(&pkt, data, sizeof(pkt));
       processGyroAngle(pkt);
+      return;
+    }
+    if (type == Contracts::TYPE_GYRO_HEIGHT && len == (int)sizeof(Contracts::GyroHeightPacket))
+    {
+      Contracts::GyroHeightPacket pkt;
+      memcpy(&pkt, data, sizeof(pkt));
+      processGyroHeight(pkt);
       return;
     }
     if (type == Contracts::TYPE_TPMS && len == (int)sizeof(Contracts::TpmsPacket))

@@ -4,10 +4,11 @@
 #include <esp_mac.h> 
 #include <WiFi.h>
 #include <esp_now.h>
+#include "ContractsInclude.hpp"
+
+using namespace Contracts;
 
 NimBLEScan* pBLEScan = nullptr;
-
-uint8_t espNowPeerMac[] = { 0x50, 0x78, 0x7D, 0x13, 0x22, 0xF8 };
 
 //BMS BLE
 static NimBLEUUID SVC_FF00("0000ff00-0000-1000-8000-00805f9b34fb");
@@ -26,113 +27,16 @@ static NimBLERemoteCharacteristic* chWrite = nullptr;
 
 static std::vector<uint8_t> rxBuf;
 
-#pragma pack(push, 1)
-struct TpmsPacket {
-    uint32_t sequence;
-    uint32_t sensorId;
-    uint32_t pressure;  // raw 32-bit value as you decode it
-    uint16_t temp;      // raw 16-bit value
-};
-
-
-struct BmsBasicInfoPacket {
-    int32_t packVoltage_cV;    // centivolts (0.01 V)
-    int32_t current_cA;        // centiamps (0.01 A), signed
-    uint8_t soc_percent;       // %
-    int32_t remaining_cAh;     // centiamp-hours (0.01 Ah)
-    int32_t temperature_dC;    // deci-degC (0.1 °C)
-};
-#pragma pack(pop)
-
-
-static constexpr uint8_t SYNC1 = 0xAA;
-static constexpr uint8_t SYNC2 = 0x55;
-static constexpr uint8_t TYPE_TPMS = 0x01;
-static constexpr uint8_t TYPE_BMS = 0x02;
-
-static TpmsPacket pendingMessage;
-
 void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
     Serial.print("ESP-NOW send status: ");
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "SUCCESS" : "FAIL");
 }
 
-class MyScanCallbacks : public NimBLEScanCallbacks {
-    void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
-        String name = advertisedDevice->getName().c_str();
-
-        // Ignore unnamed devices
-        if (!name.length()) {
-            return;
-        }
-
-        Serial.print(name);
-        Serial.print("  |  ");
-        Serial.print(advertisedDevice->getAddress().toString().c_str());
-
-        // Filter: only devices whose name starts with "TPMS"
-        if (!name.startsWith("TPMS")) {
-            return;
-        }
-
-        const std::vector<uint8_t>& payload = advertisedDevice->getPayload();
-        size_t length = payload.size();
-
-        if (length >= 32) {
-            uint32_t pressure = 0;
-            pressure |= (uint32_t)payload[17];
-            pressure |= (uint32_t)payload[18] << 8;
-            pressure |= (uint32_t)payload[19] << 16;
-            pressure |= (uint32_t)payload[20] << 24;
-
-            uint16_t temp = 0;
-            temp |= (uint16_t)payload[21];
-            temp |= (uint16_t)payload[22] << 8;
-
-            uint32_t sensorId = 0;
-            sensorId |= (uint32_t)payload[14];
-            sensorId |= (uint32_t)payload[15] << 8;
-            sensorId |= (uint32_t)payload[16] << 16;
-
-            Serial.print("  |  Sensor: ");
-            Serial.print(sensorId);
-            Serial.print("  |  Pressure: ");
-            Serial.print(pressure);
-            Serial.print("  |  Temp: ");
-            Serial.print(temp);
-
-            pendingMessage.sensorId = sensorId;
-            pendingMessage.pressure = pressure;
-            pendingMessage.temp     = temp;
-            pendingMessage.sequence++;
-
-            esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
-            Serial.print("  |  ESP-NOW send: ");
-            Serial.println(res == ESP_OK ? "OK" : String("ERR ") + res);
-
-            const uint8_t len = (uint8_t)(1 + sizeof(TpmsPacket));
-            Serial2.write(SYNC1);
-            Serial2.write(SYNC2);
-            Serial2.write(len);
-            Serial2.write(TYPE_TPMS);
-            Serial2.write((const uint8_t*)&pendingMessage, sizeof(TpmsPacket));
-
-        } else {
-            Serial.print("  |  Payload too short (");
-            Serial.print(length);
-            Serial.print(")");
-        }
-
-        Serial.println();
-    }
-
-    void onScanEnd(const NimBLEScanResults& results, int reason) override {
-        Serial.println("Scan ended");
-    }
-};
-
 // ==== Setup ==== //
 void setup() {
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println("BMS gateway");
 
   NimBLEDevice::init("ESP32-BMS");
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
@@ -140,64 +44,43 @@ void setup() {
   if (!connectBMS()) {
     Serial.println("❌ Failed to connect to BMS");
   }
-}
-void setup() {
-    Serial.begin(115200);
-    Serial.println();
-    Serial.println("TPMS gateway: scanning TPMS* and forwarding via ESP-NOW.");
 
-    // Binary link to other ESP over UART2 on GPIO16/17
-    Serial2.begin(115200, SERIAL_8N1, 16, 17);
+  WiFi.mode(WIFI_STA);        // required for ESP-NOW
+  WiFi.disconnect();          // just to be safe
 
-    //Init the sequence to 1 so that the Monitor can detect the first packet
-    pendingMessage.sequence = 1;
+  // Read the real STA MAC from efuse
+  uint8_t staMac[6];
+  esp_read_mac(staMac, ESP_MAC_WIFI_STA);
 
-    WiFi.mode(WIFI_STA);        // required for ESP-NOW
-    WiFi.disconnect();          // just to be safe
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr),
+          "%02X:%02X:%02X:%02X:%02X:%02X",
+          staMac[0], staMac[1], staMac[2],
+          staMac[3], staMac[4], staMac[5]);
 
-    // Read the real STA MAC from efuse
-    uint8_t staMac[6];
-    esp_read_mac(staMac, ESP_MAC_WIFI_STA);
+  Serial.print("ESP-NOW (STA) MAC: ");
+  Serial.println(macStr);
 
-    char macStr[18];
-    snprintf(macStr, sizeof(macStr),
-            "%02X:%02X:%02X:%02X:%02X:%02X",
-            staMac[0], staMac[1], staMac[2],
-            staMac[3], staMac[4], staMac[5]);
+  // Now init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+      Serial.println("ESP-NOW init failed!");
+      while (true) { delay(1000); }
+  }
 
-    Serial.print("ESP-NOW (STA) MAC: ");
-    Serial.println(macStr);
+  // New-style callback signature for your core:
+  esp_now_register_send_cb(onEspNowSent);
 
-    // Now init ESP-NOW
-    if (esp_now_init() != ESP_OK) {
-        Serial.println("ESP-NOW init failed!");
-        while (true) { delay(1000); }
-    }
+  // Add peer (your ESP32-S3)
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, Contracts::S3_5_1_MAC, 6);
+  peerInfo.channel = 0;   // 0 = current Wi-Fi channel
+  peerInfo.encrypt = false;
 
-    // New-style callback signature for your core:
-    esp_now_register_send_cb(onEspNowSent);
-
-    // Add peer (your ESP32-S3)
-    esp_now_peer_info_t peerInfo = {};
-    memcpy(peerInfo.peer_addr, espNowPeerMac, 6);
-    peerInfo.channel = 0;   // 0 = current Wi-Fi channel
-    peerInfo.encrypt = false;
-
-    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-        Serial.println("Failed to add ESP-NOW peer!");
-        while (true) { delay(1000); }
-    }
-
-    // --- BLE scanner init (NimBLE) --- //
-    NimBLEDevice::init("TPMS-Gateway");
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9); // TX power for scan requests, etc.
-
-    pBLEScan = NimBLEDevice::getScan();
-    pBLEScan->setScanCallbacks(new MyScanCallbacks(), /*wantDuplicates=*/true);
-    pBLEScan->setFilterPolicy(BLE_HCI_SCAN_FILT_NO_WL);
-    pBLEScan->setActiveScan(true);  // request scan response
-    
-    Serial.println("Setup complete.");
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+      Serial.println("Failed to add ESP-NOW peer!");
+      while (true) { delay(1000); }
+  }
+  Serial.println("Setup complete.");
 }
 
 // ---------- Helpers ----------
@@ -210,7 +93,7 @@ static int16_t be16s(const uint8_t* p) {
   return int16_t((uint16_t(p[0]) << 8) | p[1]);
 }
 
-bool parseBasicInfo03(const uint8_t* frame, size_t len, BmsBasicInfoPacket& out) {
+bool parseBasicInfo03(const uint8_t* frame, size_t len, BmsPacket& out) {
   if (len < 41) return false;
   if (frame[0] != 0xDD || frame[1] != 0x03 || frame[len - 1] != 0x77) return false;
 
@@ -232,13 +115,13 @@ bool parseBasicInfo03(const uint8_t* frame, size_t len, BmsBasicInfoPacket& out)
   // 20    temp sensor count
   // 21..22 temperature (0.1K)
 
-  out.packVoltage_cV = (int32_t)((uint16_t(pl[0]) << 8) | pl[1]);
-  out.current_cA     = (int32_t)(int16_t((uint16_t(pl[2]) << 8) | pl[3]));
-  out.remaining_cAh  = (int32_t)((uint16_t(pl[4]) << 8) | pl[5]);
+  out.volts = (int32_t)((uint16_t(pl[0]) << 8) | pl[1]);
+  out.amps     = (int32_t)(int16_t((uint16_t(pl[2]) << 8) | pl[3]));
+  out.remaining  = (int32_t)((uint16_t(pl[4]) << 8) | pl[5]);
   out.soc_percent    = pl[19];
 
   const uint16_t temp_raw = (uint16_t(pl[23]) << 8) | pl[24];
-  out.temperature_dC = (int32_t)temp_raw - 2731; // 0.1K -> 0.1°C
+  out.temp = (int32_t)temp_raw - 2731; // 0.1K -> 0.1°C
 
   return true;
 }
@@ -274,16 +157,20 @@ static void consumeFrames() {
 
     // ---- Handle frame ----
     if (frame.size() >= 2 && frame[1] == 0x03) {
-      BmsBasicInfoPacket info;
+      BmsPacket info;
       if (parseBasicInfo03(frame.data(), frame.size(), info)) {
         Serial.printf(
           "BMS: V=%ld.%02ldV  I=%ld.%02ldA  SOC=%u%%  Rem=%ld.%02ldAh  T=%ld.%1ldC\n",
-          info.packVoltage_cV / 100, abs(info.packVoltage_cV % 100),
-          info.current_cA / 100, abs(info.current_cA % 100),
+          info.volts / 100, abs(info.volts % 100),
+          info.amps / 100, abs(info.amps % 100),
           info.soc_percent,
-          info.remaining_cAh / 100, abs(info.remaining_cAh % 100),
-          info.temperature_dC / 10, abs(info.temperature_dC % 10)
+          info.remaining / 100, abs(info.remaining % 100),
+          info.temp / 10, abs(info.temp % 10)
         );
+
+        esp_err_t res = esp_now_send(S3_5_1_MAC, (uint8_t*)&info, sizeof(info));
+            Serial.print("  |  ESP-NOW send: ");
+            Serial.println(res == ESP_OK ? "OK" : String("ERR ") + res);
       }
     }
   }
@@ -363,37 +250,21 @@ static void sendBasic03() {
 }
 
 void loop() {
-    // static uint32_t lastScanStart = 0;
-    // uint32_t now = millis();
+  static uint32_t lastPoll = 0;
 
-    // // If not currently scanning, start a 30-second scan every ~5s gap
-    // if (!pBLEScan->isScanning() && (now - lastScanStart > 5000)) {
-    //     Serial.println("Starting TPMS scan...");
-    //     // duration=30 (seconds), isContinue=false, restart=false
-    //     pBLEScan->start(120000, false, false);
-    //     lastScanStart = now;
-    // }
+  if (!client || !client->isConnected()) {
+      delay(1000);
+      return;
+  }
 
-    // delay(5000);
+  uint32_t now = millis();
+  if (now - lastPoll >= 1000) {
+      lastPoll = now;
 
-    // //PING - send last received measurement
-    // esp_err_t res = esp_now_send(espNowPeerMac, (uint8_t*)&pendingMessage, sizeof(pendingMessage));
+      sendBasic03();
+      //delay(100);
+      //sendTemps06();
+  }
 
-    static uint32_t lastPoll = 0;
-
-    if (!client || !client->isConnected()) {
-        delay(1000);
-        return;
-    }
-
-    uint32_t now = millis();
-    if (now - lastPoll >= 1000) {
-        lastPoll = now;
-
-        sendBasic03();
-        //delay(100);
-        //sendTemps06();
-    }
-
-    delay(10);
+  delay(10);
 }

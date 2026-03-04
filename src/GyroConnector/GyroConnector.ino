@@ -22,7 +22,11 @@ static NimBLEClient* client = nullptr;
 static NimBLERemoteCharacteristic* chNotify = nullptr;
 static NimBLERemoteCharacteristic* chWrite = nullptr;
 
+static uint32_t lastGyroPublishMs = 0;
+static constexpr uint32_t GYRO_PUBLISH_INTERVAL_MS = 1000;
+
 static std::vector<uint8_t> rxBuf;
+static int16_t height;
 
 void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
     Serial.print("ESP-NOW send status: ");
@@ -113,13 +117,19 @@ static void consumeFrames() {
 
   while (rxBuf.size() >= FRAME_LEN) {
 
-    // resync to 0x55 0x61
-    if (!(rxBuf[0] == 0x55 && rxBuf[1] == 0x61)) {
+    // resync to 0x55
+    if (rxBuf[0] != 0x55) {
       rxBuf.erase(rxBuf.begin());
       continue;
     }
 
     uint8_t flag = rxBuf[1];
+
+    // If it's not a frame type we handle, drop one byte and resync.
+    if (!(flag == 0x61 || flag == 0x71)) {
+      rxBuf.erase(rxBuf.begin());
+      continue;
+    }
 
     const uint8_t* f = rxBuf.data();
 
@@ -135,14 +145,23 @@ static void consumeFrames() {
       float pitch = p_raw * SCALE;
       float yaw   = y_raw * SCALE;
 
-      Serial.printf("RPY: %.2f %.2f %.2f\n", roll, pitch, yaw);
+      uint32_t now = millis();
 
-      GyroAnglePacket pkt;
-      pkt.type = Contracts::TYPE_GYRO_ANGLE;
-      pkt.roll_deg  = (int16_t)(roll  * 100.0f);
-      pkt.pitch_deg = (int16_t)(pitch * 100.0f);
-      pkt.yaw_deg   = (int16_t)(yaw   * 100.0f);
-      esp_now_send(Contracts::S3_5_1_MAC, (uint8_t*)&pkt, sizeof(pkt));
+      //Serial.printf("RPY: %.2f %.2f %.2f\n", roll, pitch, yaw);
+
+      // publish at most once per second
+      if (now - lastGyroPublishMs >= GYRO_PUBLISH_INTERVAL_MS) {
+
+        lastGyroPublishMs = now;
+
+        GyroAnglePacket pkt;
+        pkt.type = Contracts::TYPE_GYRO_ANGLE;
+        pkt.roll_deg  = (int16_t)(roll  * 100.0f);
+        pkt.pitch_deg = (int16_t)(pitch * 100.0f);
+        pkt.yaw_deg   = (int16_t)(yaw   * 100.0f);
+        pkt.height = height;
+        esp_now_send(Contracts::S3_5_1_MAC, (uint8_t*)&pkt, sizeof(pkt));
+      }
 
       rxBuf.erase(rxBuf.begin(), rxBuf.begin() + FRAME_LEN);
       continue;
@@ -164,6 +183,12 @@ static void consumeFrames() {
 
         Serial.printf("Pressure: %lu Pa, Alt: %.2f m\n",
                       (unsigned long)pressure_pa, height_m);
+
+        height = (int16_t)height_m;
+        // GyroHeightPacket pkt;
+        // pkt.type = Contracts::TYPE_GYRO_HEIGHT;
+        // pkt.height  = (int16_t)height_m;
+        // esp_now_send(Contracts::S3_5_1_MAC, (uint8_t*)&pkt, sizeof(pkt));
       }
 
       rxBuf.erase(rxBuf.begin(), rxBuf.begin() + FRAME_LEN);
