@@ -87,7 +87,7 @@
  *      - https://www.displaysmodule.com/sale-43987867-capacitive-touch-advanced-tft-hmi-display-module-jc8048w550-800-480-pixel-resolution-st7262-driver-c.html
  */
 // #define BOARD_JINGCAI_ESP32_4848S040C_I_Y_3
-//#define BOARD_JINGCAI_JC8048W550C
+#define BOARD_JINGCAI_JC8048W550C
 
 /*
  * Waveshare Supported Boards (https://www.waveshare.com/):
@@ -111,7 +111,7 @@
 // #define BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_4_3_B
 // #define BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_5
 // #define BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_5_B
-#define BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_7
+// #define BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_7
 // #define BOARD_WAVESHARE_ESP32_P4_NANO
 
 /*

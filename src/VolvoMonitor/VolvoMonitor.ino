@@ -12,6 +12,8 @@
 #include "pitch.c"
 #include "roll.c"
 #include "gyro_data.hpp"
+#include "camera_ui.hpp"
+#include "espnow_retry.hpp"
 
 using namespace esp_panel::board;
 using namespace esp_panel::drivers;
@@ -153,6 +155,7 @@ void setup() {
   lv_obj_t *tab1 = lv_tabview_add_tab(tv, "Tires");
   lv_obj_t *tab2 = lv_tabview_add_tab(tv, "Gyro");
   lv_obj_t *tab3 = lv_tabview_add_tab(tv, "Power");
+  lv_obj_t *tab4 = lv_tabview_add_tab(tv, "Camera");
 
   lv_obj_t *content = lv_tabview_get_content(tv);
   lv_obj_set_style_pad_all(content, 0, 0);
@@ -244,6 +247,23 @@ void setup() {
 
   setup_gyro_tab(cont2, disp_w, disp_h);
 
+    /* Remove padding/border from the tab page itself */
+  lv_obj_set_style_pad_all(tab4, 0, 0);
+  lv_obj_set_style_border_width(tab4, 0, 0);
+  lv_obj_set_style_radius(tab4, 0, 0);
+
+  lv_obj_t *cont4 = lv_obj_create(tab4);
+  lv_obj_clear_flag(tab4, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(cont4, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_set_size(cont4, lv_pct(100), lv_pct(100));
+  lv_obj_set_style_pad_all(cont4, 0, 0);
+  lv_obj_set_style_border_width(cont4, 0, 0);
+  lv_obj_set_style_bg_opa(cont4, LV_OPA_TRANSP, 0);
+
+  setup_camera_tab(cont4, disp_w, disp_h);
+  camera_ui_set_callback(on_camera_selected);
+
   init_gauge_timer();
   init_timer();
   
@@ -251,6 +271,38 @@ void setup() {
   {
     Serial0.printf("ESP-NOW init failed"); 
   }
+
+  if (!espnow_retry_init()) {
+    Serial.println("Retry layer init failed");
+  }
+
+  on_camera_selected(0);
+
+  Serial0.printf("Setup complete"); 
+}
+
+void on_camera_selected(uint8_t id)
+{
+  Serial.printf("Camera selected: %d\n", id);
+
+  switch(id)
+  {
+    case 0: Serial.println("Rear high"); break;
+    case 1: Serial.println("Rear low"); break;
+    case 2: Serial.println("Front high"); break;
+    case 3: Serial.println("Front low"); break;
+  }
+
+  Contracts::CameraSelectPacket pkt;
+  pkt.type = Contracts::TYPE_CAMERA_SELECT;
+  pkt.input  = (int16_t)id+1;
+
+  esp_err_t res = espnow_send_cached(Contracts::LILYGO_CAMERA_MAC, (uint8_t*)&pkt, sizeof(pkt));
+  if (res != ESP_OK) {
+    Serial.print("ESP-NOW send: ");
+    Serial.println(res == ESP_OK ? "OK" : String("ERR ") + res);
+  }
+          
 }
 
 static void anim_all_cb(lv_timer_t *t)
@@ -373,26 +425,6 @@ void setup_gyro_tab(lv_obj_t *cont, int disp_w, int disp_h)
   lv_coord_t ch = lv_obj_get_height(cell_compass);
 
   compass_strip_create(&g_compass, cell_compass, 0, 0, cw, ch);
-
-  // ---- Existing bottom controls split left/right (row 1) ----
-  // lv_obj_t *cell_led = lv_obj_create(controls);
-  // lv_obj_remove_style_all(cell_led);
-  // lv_obj_set_style_bg_opa(cell_led, LV_OPA_TRANSP, 0);
-  // lv_obj_set_size(cell_led, lv_pct(100), lv_pct(100));
-  // lv_obj_set_grid_cell(cell_led,
-  //                     LV_GRID_ALIGN_CENTER, 0, 1,
-  //                     LV_GRID_ALIGN_CENTER, 1, 1);   // row 1
-
-  // lv_obj_t *cell_lbl = lv_obj_create(controls);
-  // lv_obj_remove_style_all(cell_lbl);
-  // lv_obj_set_style_bg_opa(cell_lbl, LV_OPA_TRANSP, 0);
-  // lv_obj_set_size(cell_lbl, lv_pct(100), lv_pct(100));
-  // lv_obj_set_grid_cell(cell_lbl,
-  //                     LV_GRID_ALIGN_CENTER, 1, 1,
-  //                     LV_GRID_ALIGN_CENTER, 1, 1);   // row 1
-
-  // Demo compass values
-  //compass_strip_set_altitude(&g_compass, 65);
 }
 
 void onEspNowRecv(const esp_now_recv_info_t *info,
@@ -428,6 +460,11 @@ void onEspNowRecv(const esp_now_recv_info_t *info,
     }
 }
 
+void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
+    Serial.print("ESP-NOW send status: ");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "SUCCESS" : "FAIL");
+}
+
 bool initEspNow()
 {
     WiFi.mode(WIFI_STA);
@@ -454,6 +491,19 @@ bool initEspNow()
     }
 
     esp_now_register_recv_cb(onEspNowRecv);
+    esp_now_register_send_cb(onEspNowSent);
+
+    // Add peer (your ESP32-S3)
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, Contracts::LILYGO_CAMERA_MAC, 6);
+    peerInfo.channel = 0;   // 0 = current Wi-Fi channel
+    peerInfo.encrypt = false;
+
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+        Serial.println("Failed to add ESP-NOW peer!");
+        while (true) { delay(1000); }
+    }
+
     start_time  = millis();
     last_update = start_time;
     return true;
@@ -466,5 +516,6 @@ void loop() {
   last = now;
 
   lv_timer_handler();
+  espnow_retry_poll();
   delay(5);
 }
