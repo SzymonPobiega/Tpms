@@ -3,118 +3,51 @@
 #include <esp_mac.h> 
 #include <WiFi.h>
 #include <esp_now.h>
+#include "CamperUI.hpp"
 
-static lv_obj_t *BAT_Label;      // Label to display battery voltage
-char bat_v[20];                  // Buffer to store formatted battery voltage string
+// Example callbacks
+static void onLightChanged(CamperUI::LightGroup group, uint8_t idx, bool on) {
+    Serial.printf("Light group=%u idx=%u -> %s\n",
+                  (unsigned)group, (unsigned)idx, on ? "ON" : "OFF");
+    // TODO: your IO / ESP-NOW logic here
+}
 
-// Optional: track which mode is selected
-typedef enum {
-    MODE_FRONT_HIGH,
-    MODE_FRONT_LOW,
-    MODE_REAR_HIGH,
-    MODE_REAR_LOW
-} camera_mode_t;
+static void onAllOff() {
+    Serial.println("ALL OFF triggered");
+    // TODO: your IO / ESP-NOW logic here
+}
 
-static camera_mode_t g_mode = MODE_FRONT_HIGH;
+static void onActPressed(CamperUI::Actuator a, CamperUI::Direction d) {
+    Serial.printf("PRESS act=%u dir=%u\n", (unsigned)a, (unsigned)d);
+    // start motor/relay
+}
+
+static void onActReleased(CamperUI::Actuator a, CamperUI::Direction d) {
+    Serial.printf("RELEASE act=%u dir=%u\n", (unsigned)a, (unsigned)d);
+    // stop motor/relay
+}
 
 void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
     Serial.print("ESP-NOW send status: ");
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "SUCCESS" : "FAIL");
 }
 
-static void sidebar_btn_event_cb(lv_event_t * e)
+static void build_ui()
 {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    CamperUI::Callbacks cb;
+    cb.onLightChanged = onLightChanged;
+    cb.onAllOff = onAllOff;
+    cb.onActuatorPressed = onActPressed;
+    cb.onActuatorReleased = onActReleased;
+    CamperUI::init(cb);
 
-    lv_obj_t *btn = lv_event_get_target(e);
-    const char *txt = lv_label_get_text(lv_obj_get_child(btn, 0));
-
-    if (!strcmp(txt, "Front High")) {
-        g_mode = MODE_FRONT_HIGH;
-        Serial.println("Mode: Front High");
-        // TODO: your IO logic here
-    } else if (!strcmp(txt, "Front Low")) {
-        g_mode = MODE_FRONT_LOW;
-        Serial.println("Mode: Front Low");
-        // TODO: your IO logic here
-    } else if (!strcmp(txt, "Rear High")) {
-        g_mode = MODE_REAR_HIGH;
-        Serial.println("Mode: Rear High");
-        // TODO: your IO logic here
-    } else if (!strcmp(txt, "Rear Low")) {
-        g_mode = MODE_REAR_LOW;
-        Serial.println("Mode: Rear Low");
-        // TODO: your IO logic here
-    }
-
-    Contracts::CameraSelectPacket pkt;
-    pkt.type = Contracts::TYPE_CAMERA_SELECT;
-    pkt.input  = ((int16_t)g_mode)+1;
-
-    esp_err_t res = esp_now_send(Contracts::LILYGO_CAMERA_MAC, (uint8_t*)&pkt, sizeof(pkt));
-            Serial.print("  |  ESP-NOW send: ");
-            Serial.println(res == ESP_OK ? "OK" : String("ERR ") + res);
+    // Example: set some live values
+    CamperUI::setSocPercent(78);
+    CamperUI::setRemainingAh(62.0f);
+    CamperUI::setChargeCurrentA(12.4f);
+    CamperUI::setDischargeCurrentA(6.8f);
 }
 
-static lv_obj_t* make_sidebar_btn(lv_obj_t *parent, const char *text, camera_mode_t mode)
-{
-    lv_obj_t *btn = lv_btn_create(parent);
-    lv_obj_set_width(btn, lv_pct(100));
-    lv_obj_set_height(btn, 60);
-
-    lv_obj_t *lbl = lv_label_create(btn);
-    lv_label_set_text(lbl, text);
-    lv_obj_center(lbl);
-
-    lv_obj_add_event_cb(btn, sidebar_btn_event_cb, LV_EVENT_CLICKED, (void*)(uintptr_t)mode);
-    return btn;
-}
-
-void lvgl_ui(void)
-{
-    lv_obj_t *scr = lv_scr_act();
-
-    // --- Sidebar container (left) ---
-    lv_obj_t *sidebar = lv_obj_create(scr);
-    lv_obj_set_size(sidebar, 150, 320);        // width, height
-    lv_obj_set_pos(sidebar, 0, 0);
-
-    // Layout: vertical stack
-    lv_obj_set_flex_flow(sidebar, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(sidebar,
-                          LV_FLEX_ALIGN_START,   // main axis
-                          LV_FLEX_ALIGN_CENTER,  // cross axis
-                          LV_FLEX_ALIGN_CENTER); // track axis
-    lv_obj_set_style_pad_all(sidebar, 10, 0);
-    lv_obj_set_style_pad_row(sidebar, 10, 0);
-
-    // Helper to create a sidebar butto
-
-    make_sidebar_btn(sidebar, "Front High", MODE_FRONT_HIGH);
-    make_sidebar_btn(sidebar, "Front Low",  MODE_FRONT_LOW);
-    make_sidebar_btn(sidebar, "Rear High",  MODE_REAR_HIGH);
-    make_sidebar_btn(sidebar, "Rear Low",   MODE_REAR_LOW);
-
-    // --- Battery label (center-ish, to the right of sidebar) ---
-    BAT_Label = lv_label_create(scr);
-    lv_obj_set_width(BAT_Label, LV_SIZE_CONTENT);
-    lv_obj_set_height(BAT_Label, LV_SIZE_CONTENT);
-
-    // Place it to the right of the sidebar
-    lv_obj_set_pos(BAT_Label, 170, 120);
-    lv_label_set_text(BAT_Label, "BAT:3.7V");
-
-    // Style the battery label
-    lv_obj_set_style_text_color(BAT_Label, lv_color_hex(0xFFA500),
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(BAT_Label, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(BAT_Label, &lv_font_montserrat_44,
-                               LV_PART_MAIN | LV_STATE_DEFAULT);
-}
-
-/**
- * @brief Main setup function.
- */
 void setup() {
     Serial.begin(115200);
 
@@ -169,7 +102,7 @@ void setup() {
     ESP_LOGI(TAG, "Display LVGL UI");
 
     if (lvgl_port_lock(-1)) {
-        lvgl_ui();
+        build_ui();
         lvgl_port_unlock();
     }
 }
