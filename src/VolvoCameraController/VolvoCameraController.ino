@@ -7,7 +7,7 @@
 using namespace Contracts;
 
 static const int RELAY_PINS[4] = {21, 19, 18, 5};
-static const bool RELAY_ACTIVE_LOW = true;
+static const bool RELAY_ACTIVE_LOW = false;
 
 void setRelays(uint16_t which)
 {
@@ -42,8 +42,9 @@ void setup()
   for (int i = 0; i < 4; i++)
   {
     pinMode(RELAY_PINS[i], OUTPUT);
-    digitalWrite(RELAY_PINS[i], HIGH); // OFF
   }
+
+  setRelays(1);
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();

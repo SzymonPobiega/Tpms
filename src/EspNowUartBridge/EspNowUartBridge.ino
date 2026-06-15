@@ -6,8 +6,6 @@
 // -------------------- USER CONFIG --------------------
 static const uint8_t broadcastMAC[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF }; // <-- Brodcast
 
-static const int ESPNOW_CHANNEL = 1;   // must match all peers
-
 static const int UART_RX_PIN = 16;     // GPIO16
 static const int UART_TX_PIN = 17;     // GPIO17
 static const uint32_t UART_BAUD = 115200;
@@ -28,6 +26,8 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
   if (!data || len <= 0) return;
 
   // Forward as-is to UART (exact bytes, no modification)
+  uint8_t l = (uint8_t)len;
+  U.write(&l, 1);
   U.write(data, len);
 }
 
@@ -37,7 +37,6 @@ void onEspNowSent(const wifi_tx_info_t* tx_info, esp_now_send_status_t status) {
 // ---------- Setup ESPNOW ----------
 bool initEspNow() {
     WiFi.mode(WIFI_STA);
-
     WiFi.disconnect();
 
     // Read the real STA MAC from efuse
@@ -59,13 +58,12 @@ bool initEspNow() {
         return false;
     }
 
-
     esp_now_register_recv_cb(onEspNowRecv);
     esp_now_register_send_cb(onEspNowSent);
 
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, broadcastMAC, 6);
-    peerInfo.channel = ESPNOW_CHANNEL;
+    peerInfo.channel = 0;
     peerInfo.encrypt = false;
 
     // Add peer (replace if already exists)
@@ -87,6 +85,8 @@ bool readOneUartMessage(size_t &outLen) {
   if (l < 0) return false;
 
   uint8_t lenField = (uint8_t)l;
+
+  //Serial.println(lenField);
 
   // Validate
   if (lenField == 0 || lenField > MAX_LEN_FIELD) {
@@ -122,6 +122,7 @@ void setup() {
     Serial.println("Bridge ready: ESPNOW <-> UART");
 
     delay(1000);
+
     // UART on GPIO16/17
     U.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
     
@@ -134,6 +135,7 @@ void loop() {
   if (readOneUartMessage(msgLen)) {
     // Send as-is
     esp_err_t err = esp_now_send(broadcastMAC, uartBuf, msgLen);
+    Serial.println(msgLen);
     if (err != ESP_OK) {
       // If send fails, you can optionally log
       // Serial.printf("esp_now_send err=%d\n", (int)err);

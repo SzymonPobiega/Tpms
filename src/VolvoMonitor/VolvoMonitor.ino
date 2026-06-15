@@ -14,11 +14,13 @@
 #include "gyro_data.hpp"
 #include "camera_ui.hpp"
 #include "espnow_retry.hpp"
+#include "energy_ui.hpp"
 
 using namespace esp_panel::board;
 using namespace esp_panel::drivers;
 using namespace tpms;
 using namespace gyro;
+using namespace CamperUI;
 
 #if LV_COLOR_DEPTH != 16
 #error "Set LV_COLOR_DEPTH to 16 (RGB565) in lv_conf.h"
@@ -208,10 +210,10 @@ void setup() {
   gauges.clear();
   gauges.reserve(6);
 
-  for (int r = 0; r < 2; ++r) {
-    for (int c = 0; c < 3; ++c) {
-      // One container per cell
-            lv_obj_t *cell = lv_obj_create(cont);
+  for (int c = 0; c < 3; ++c) {
+    for (int r = 0; r < 2; ++r) {
+    // One container per cell
+      lv_obj_t *cell = lv_obj_create(cont);
       lv_obj_remove_style_all(cell);
 
       lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
@@ -246,6 +248,35 @@ void setup() {
   lv_obj_clear_flag(cont2, LV_OBJ_FLAG_SCROLLABLE);
 
   setup_gyro_tab(cont2, disp_w, disp_h);
+
+  //Tab3 - energy
+
+  lv_obj_set_style_pad_all(tab3, 0, 0);
+  lv_obj_set_style_border_width(tab3, 0, 0);
+  lv_obj_set_style_radius(tab3, 0, 0);
+
+  lv_obj_t *cont3 = lv_obj_create(tab3);
+  lv_obj_clear_flag(tab3, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(cont3, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_set_size(cont3, lv_pct(100), lv_pct(100));
+  lv_obj_set_style_pad_all(cont3, 0, 0);
+  lv_obj_set_style_border_width(cont3, 0, 0);
+  lv_obj_set_style_bg_opa(cont3, LV_OPA_TRANSP, 0);
+
+  CamperUI::Callbacks camper_cb = {};
+  // camper_cb.onLightChanged = ...;
+  // camper_cb.onAllOff = ...;
+  // camper_cb.onActuatorPressed = ...;
+  // camper_cb.onActuatorReleased = ...;
+
+  lv_obj_update_layout(tv);
+  lv_obj_update_layout(cont3);
+
+  lv_coord_t tab3_w = lv_obj_get_content_width(cont3);
+  lv_coord_t tab3_h = lv_obj_get_content_height(cont3);
+
+  CamperUI::init(cont3, tab3_w, tab3_h, camper_cb);
 
     /* Remove padding/border from the tab page itself */
   lv_obj_set_style_pad_all(tab4, 0, 0);
@@ -456,6 +487,22 @@ void onEspNowRecv(const esp_now_recv_info_t *info,
       memcpy(&pkt, data, sizeof(pkt));
       processTpms(pkt);
       last_update = now;
+      return;
+    }
+    if (type == Contracts::TYPE_BMS && len == (int)sizeof(Contracts::BmsPacket))
+    {
+      Contracts::BmsPacket pkt;
+      memcpy(&pkt, data, sizeof(pkt));
+      setSocPercent(pkt.soc_percent);
+      setRemainingAh(pkt.remaining / (float) 100);
+      setChargeCurrentA(pkt.amps / (float) 100);
+      //setDischargeCurrentA(67.0f);
+
+      // Serial.printf("BMS: SOC=%u, Remaining=%d Ah, Charge=%d A\n",
+      //             (unsigned)pkt.soc_percent,
+      //             pkt.remaining,
+      //             pkt.amps);
+
       return;
     }
 }

@@ -121,7 +121,7 @@ static void anim_all_cb(lv_timer_t *t)
     using namespace tpms;
 
     if (hasData) {
-        for (int gi = 0; gi < 4; gi++) {
+        for (int gi = 0; gi < kMaxSensors; gi++) {
             GaugeUI &g0 = gauges[gi];
 
             lv_meter_set_indicator_value(g0.meter, g0.needle, latestPressure[gi]);
@@ -141,7 +141,7 @@ static void anim_all_cb(lv_timer_t *t)
     uint32_t now = millis();
     uint32_t elapsed_sec = (now - last_update) / 1000;
 
-    for (int gi = 0; gi < 4; gi++) {
+    for (int gi = 0; gi < kMaxSensors; gi++) {
         GaugeUI &g0 = gauges[gi];
 
         uint32_t age_sec = (now - lastUpdated[gi]) / 1000;

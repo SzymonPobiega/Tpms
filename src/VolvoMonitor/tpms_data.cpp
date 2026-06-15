@@ -13,12 +13,12 @@ volatile uint32_t start_time                  = 0;
 
 uint32_t getIndex(uint32_t sensor)
 {
-    if (sensor == 8924691)  return 0;
-    else if (sensor == 9580339)  return 1;
-    else if (sensor == 9449267) return 2;
-    else if (sensor == 6499363)  return 3;
-    else if (sensor == 14745155)  return 4;
-    else if (sensor == 2240579)  return 5;
+    if (sensor == 8924691)  return 0; //OK TPMS1_132E88  
+    else if (sensor == 9580339)  return 1; //OK TPMS3_332F92  
+    else if (sensor == 9449267) return 2; //OK TPMS3_332F90  
+    else if (sensor == 6499363)  return 3; //OK TPMS2_232C63  
+    else if (sensor == 14692163)  return 4; //OK TPMS4_432FE0
+    else if (sensor == 2240579)  return 5; //OK TPMS4_433022  
     return 0;
 }
 
@@ -38,7 +38,7 @@ bool processTpms(Contracts::TpmsPacket& pkt) {
         totalPeriods[idx]++;
         lastUpdated[idx] = now;
         hasData = true;
-        Serial.print("Dupa!");
+        //Serial.print("Dupa!");
     }
     
     last_update = now;
