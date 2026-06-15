@@ -22,6 +22,10 @@ using namespace tpms;
 using namespace gyro;
 using namespace CamperUI;
 
+static portMUX_TYPE g_bmsMux = portMUX_INITIALIZER_UNLOCKED;
+static Contracts::BmsPacket g_pendingBms = {};
+static bool g_bmsPending = false;
+
 #if LV_COLOR_DEPTH != 16
 #error "Set LV_COLOR_DEPTH to 16 (RGB565) in lv_conf.h"
 #endif
@@ -493,9 +497,13 @@ void onEspNowRecv(const esp_now_recv_info_t *info,
     {
       Contracts::BmsPacket pkt;
       memcpy(&pkt, data, sizeof(pkt));
-      setSocPercent(pkt.soc_percent);
-      setRemainingAh(pkt.remaining / (float) 100);
-      setChargeCurrentA(pkt.amps / (float) 100);
+
+      // ESP-NOW callbacks run on the Wi-Fi task. LVGL must only be touched
+      // from the task that calls lv_timer_handler().
+      portENTER_CRITICAL(&g_bmsMux);
+      g_pendingBms = pkt;
+      g_bmsPending = true;
+      portEXIT_CRITICAL(&g_bmsMux);
       //setDischargeCurrentA(67.0f);
 
       // Serial.printf("BMS: SOC=%u, Remaining=%d Ah, Charge=%d A\n",
@@ -561,6 +569,22 @@ void loop() {
   uint32_t now = millis();
   lv_tick_inc(now - last);
   last = now;
+
+  Contracts::BmsPacket bms = {};
+  bool updateBms = false;
+  portENTER_CRITICAL(&g_bmsMux);
+  if (g_bmsPending) {
+    bms = g_pendingBms;
+    g_bmsPending = false;
+    updateBms = true;
+  }
+  portEXIT_CRITICAL(&g_bmsMux);
+
+  if (updateBms) {
+    setSocPercent(bms.soc_percent);
+    setRemainingAh(bms.remaining / 100.0f);
+    setChargeCurrentA(bms.amps / 100.0f);
+  }
 
   lv_timer_handler();
   espnow_retry_poll();

@@ -55,7 +55,8 @@ static void tick_label_cb(lv_event_t * e) {
     int32_t raw = dsc->value;
     int32_t mapped = raw / 100000;
     dsc->value = mapped;
-    lv_snprintf(dsc->text, sizeof(dsc->text), "%d", dsc->value);
+    // LVGL 8.4's meter tick renderer supplies a 16-byte local buffer.
+    lv_snprintf(dsc->text, 16, "%d", dsc->value);
 }
 
 GaugeUI create_pressure_gauge(lv_obj_t* parent, int size_px)
